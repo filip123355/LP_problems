@@ -88,7 +88,7 @@ class GameMatrix:
         for y_roll in range(1, self.num_faces + 1):
             rolls = [y_roll, self.x_roll]
             actual_count = rolls.count(face_call)
-            if actual_count <= dice_call:
+            if actual_count >= dice_call:
                 g_v += 1  
             else:
                 g_v -= 1  
@@ -146,7 +146,6 @@ class GameMatrix:
     def build(self):
         
         start_fill_game_matrix = time()
-                
         self.game_matrix = np.zeros((len(self.x_buffer), len(self.y_buffer)))
 
         for index in range(1, 2 ** self.b):
@@ -160,7 +159,7 @@ class GameMatrix:
             strategy_rep += '1'
             x_strategy, y_strategy = self.decode_strategy(strategy_rep)
             x_ind, y_ind = self.x_buffer.data[x_strategy], self.y_buffer.data[y_strategy]
-            self.game_matrix[x_ind, y_ind] += g_v
+            self.game_matrix[x_ind, y_ind] = g_v
         
         # Adding blank row and column for null node   
         self.game_matrix = np.concatenate((np.repeat(0, self.game_matrix.shape[0]).reshape(-1, 1), self.game_matrix), axis=1)
@@ -194,11 +193,11 @@ if __name__ == "__main__":
                     x_roll=face)
         gm.build_buffers()
         gm.build()
-        gm.save(name=f"{face}_{num_faces}.npy", path=f"bluff/game_matrices/{num_faces}f")
+        gm.save(name=f"{face}_{num_faces}.npy", path=f"bluff_lp/game_matrices/{num_faces}f")
         
     gm.build_constraints()
-    gm.save_constraints(path=f"bluff/game_constraints/{num_faces}f")
+    gm.save_constraints(path=f"bluff_lp/game_constraints/{num_faces}f")
     print(gm.x_buffer.data)
     print(gm.y_buffer.data)
-    # gm.plot()
+    gm.plot()
     
