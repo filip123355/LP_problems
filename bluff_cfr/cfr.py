@@ -1,3 +1,5 @@
+# The code implements a Liar's Die game using the Counterfactual Regret Minimization (CFR) algorithm
+# for two players.
 import numpy as np
 from tqdm import tqdm
 
@@ -49,12 +51,8 @@ class Node:
         """Samples the action basing on the current local strategy."""
         return np.random.choice(
             len(self.strategy),
-            p=self.strategy,
+            p=self.strategy / np.sum(self.strategy),
         )        
-        
-    def get_string_representation(self) -> str:
-        """Returns a string representation of the InfoSet."""
-        return f"{self}: {str(self.get_average_strategy())}"
     
 class CFRTrainer:
     """Trainer for the CFR algorithm."""
@@ -69,6 +67,7 @@ class CFRTrainer:
         self.nodes = {}
     
     def get_utility(self, dices: np.ndarray, string_history: str) -> float:
+        """Computing the utility for the first player"""
         last_claim = int(string_history[-1])
         count = np.count_nonzero(dices == (last_claim % self.numSides + 1))
         return 1.0 if count >= (last_claim // self.numSides + 1) else -1.0
@@ -80,13 +79,18 @@ class CFRTrainer:
             p_opponent: float=1.0,
             node: Node=None,) -> float:
         """The CFR algorithm."""
+        player_dice = tuple(sorted(dices[player*self.numDices:(player+1)*self.numDices]))
+        infoset_key = f"{player_dice}:{node.string_history}"
         
+        if infoset_key not in self.nodes:
+            self.nodes[infoset_key] = Node(numActions, node.owner, node.string_history)
+        node = self.nodes[infoset_key]
         # Checks if the state is terminal
-        if node.string_history[-1] == str(self.claims - 1):
+        if node.string_history.split(",")[-1] == str(self.claims - 1):
             return self.get_utility(dices, node.string_history)
         
         # Check if the node is a chance node
-        elif node.string_history[-1] == "C":
+        elif node.string_history[-1] == "":
             action = node.sample_action()
             return self.cfr(
                 dices, 
@@ -96,37 +100,32 @@ class CFRTrainer:
                 Node(
                     numActions=node.numActions, 
                     owner=node.owner,
-                    string_history=node.string_history + str(action)
+                    string_history=node.string_history + "," + str(action)
                 )
             )
             
         cf_value = 0.0
         cf_fixed_a_value = np.zeros(node.numActions, dtype=np.float32)
         # Iterate over all actions
+        last_claim = int(node.string_history.split(',')[-1]) if node.string_history else -1
+        numActions = self.claims - last_claim - 1  # Actions: last_claim+1 to claims-1
+        infoset_key = f"{player_dice}:{node.string_history}"
         for action in range(node.numActions):
             if node.owner == 0:
                 cf_fixed_a_value[action] = self.cfr(
                     dices,
                     player,
-                    p_player * node.get_strategy()[action],
+                    p_player * node.get_strategy(p_player)[action],
                     p_opponent,
-                    Node(
-                        numActions=self.claims - int(node.string_history[-1]), 
-                        owner=(node.owner + 1) % 2,
-                        string_history=node.string_history + str(action)
-                    )
+                    self.nodes[infoset_key],
                 )
             elif node.owner == 2:
                 cf_fixed_a_value[action] = self.cfr(
                     dices,
                     player,
                     p_player,
-                    p_opponent * node.get_strategy()[action],
-                    Node(
-                        numActions=node.numActions, 
-                        owner=(node.owner + 1) % 2,
-                        string_history=node.string_history + str(action)
-                    )
+                    p_opponent * node.get_strategy(p_opponent)[action],
+                    self.nodes[infoset_key],
                 )
             cf_value += node.strategySum[action] * cf_fixed_a_value[action]
             
@@ -136,16 +135,17 @@ class CFRTrainer:
                 regret = cf_fixed_a_value[action] - cf_value
                 node.regretSum[action] += regret * p_opponent if node.owner == 0 else p_player
                 node.strategySum[action] += node.strategy[action] * p_player if node.owner == 0 else p_opponent 
-            node.strategy = node.get_strategy(np.array([p_player, p_opponent]))
+            node.strategy = node.get_strategy(p_player)
             
-        return cf_value                      
+        return cf_value         
         
     def solve(self, n_steps: int=10000):
         """Solves the Liar's Die game using CFR."""
         util = 0
         for step in tqdm(range(n_steps)):
             dices = np.random.randint(1, self.numSides + 1, size=self.numPlayers * self.numDices)
-            util += self.cfr(dices, "", 1.0, 1.0)
+            root = Node(numActions=self.claims, owner=0, string_history="")
+            util += self.cfr(dices, "", 1.0, 1.0, root)
         print(f"\nAverage game value: {util / n_steps}")
         # TODO: Add more stats
         
