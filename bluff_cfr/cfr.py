@@ -7,7 +7,7 @@ import pickle as pkl
 from tqdm import tqdm
 from time import time
 
-N_DIE_SIDES = 2
+N_DIE_SIDES = 6
 N_PLAYERS = 2
 N_DICES = 1
 
@@ -55,16 +55,16 @@ class CFRTrainer:
         return outcome if claimant == cfr_player else -outcome
     
     def cfr(self, dices: np.ndarray, player: int, 
-            p_player: float=1.0, p_opponent: float=1.0, history: list=None) -> float:
+            p0: float=1.0, p1: float=1.0, history: list=None) -> float:
         if history is None:
             history = []
-        owner = (len(history) + player) % 2    
-        player_dice = tuple(dices[player, :])
-        infoset_key = f"{player}|{player_dice}|{','.join(map(str, history))}"
+        owner = (len(history)) % 2
+        owner_dice = tuple(dices[owner, :])
+        infoset_key = f"{owner}|{owner_dice}|{','.join(map(str, history))}"
         
         # Terminal condition - game ends when highest claim is made
         if len(history) > 0 and history[-1] == self.claims - 1:
-            claimant = (len(history) + player) % 2  # Alternating claimants
+            claimant = (len(history)) % 2  # Alternating claimants
             return self.get_utility(dices, history, claimant, player)
         
         # Get valid actions (can only bid higher than last claim)
@@ -89,24 +89,22 @@ class CFRTrainer:
             new_history = history + [action]
             if owner == 0:
                 action_utils[i] = self.cfr(dices, player,
-                            p_player * node.strategy[i], p_opponent,
+                            p0 * node.strategy[i], p1,
                             new_history)
             else:
                 action_utils[i] = self.cfr(dices, player,
-                            p_player, p_opponent * node.strategy[i],
+                            p0, p1 * node.strategy[i],
                             new_history)
             cf_value += node.strategy[i] * action_utils[i]
         
         # Update regret and strategy
         if owner == player:
             regrets = action_utils - cf_value
-            node.regretSum += regrets * p_opponent
-            node.strategySum += node.strategy * p_player
-        
-        # Update strategy through regret matching
-        node.get_strategy()
-        node.visits += 1
-            
+            node.regretSum += regrets * (p1 if player == 0 else p0)
+            node.strategySum += node.strategy * (p0 if player ==0 else p1)
+            node.get_strategy() # Regret matching here
+            node.visits += 1
+                
         return cf_value
     
     def solve(self, n_steps: int=10000):
@@ -141,8 +139,60 @@ class CFRTrainer:
             self.nodes = pkl.load(file)
         print(f"Strategies have been loaded from: {filename}")
         
+    def visualize_strategies(self, num_to_vis: int, nrows: int=4):
+        total_infosets = len(self.nodes.keys())
+        actual_num_to_vis = min(num_to_vis, total_infosets)
+        ncols = max(actual_num_to_vis // nrows + (1 if actual_num_to_vis % nrows else 0), 1)
+        
+        print(f"Total infosets available: {total_infosets}")
+        print(f"Attempting to visualize: {num_to_vis}")
+        print(f"Actually visualizing: {actual_num_to_vis}")
+        print(f"Grid size: {nrows}x{ncols}")
+        
+        fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4*ncols, 4*nrows))
+        axs = np.atleast_2d(axs)  # Force 2D array even for single row/col
+        
+        plot_count = 0
+        for key, node in self.nodes.items():
+            if plot_count >= actual_num_to_vis:
+                break
+                
+            row = plot_count // ncols
+            col = plot_count % ncols
+            
+            # Parse infoset key and get actions
+            bids = key[7:]
+            if bids == "":
+                args = list(range(0, self.claims - 1))
+            else:
+                
+                args = list(range([int(bid) for bid in bids.split(",")][-1] + 1, self.claims))
+            
+            avg_strategy = node.get_average_strategy()
+            
+            if len(args) != len(avg_strategy):
+                print(f"Warning: length mismatch for {key}: actions={len(args)}, strategy={len(avg_strategy)}")
+                continue
+            
+            ax = axs[row, col]
+            ax.bar(args, avg_strategy)
+            ax.set_title(f"Infoset: {key}\nVisits: {node.visits}", fontsize=8)
+            ax.set_ylabel("Average Strategy")
+            
+            plot_count += 1
+        
+        # Hide unused subplots
+        # for i in range(plot_count, nrows * ncols):
+        #     row = i // ncols
+        #     col = i % ncols
+        #     axs[row, col].set_visible(False)
+        
+        plt.tight_layout()
+        plt.show()
+                
 def merge_regrets(nodes: dict, worker_nodes_list: list) -> None:
     for key in nodes.keys():
+        
         for worker_nodes in worker_nodes_list:
             if key in worker_nodes:
                 nodes[key].regretSum += worker_nodes[key].regretSum
@@ -197,8 +247,9 @@ if __name__ == "__main__":
     trainer = CFRTrainer(numSides=N_DIE_SIDES, numDices=N_DICES)
     
     # Normal run
-    trainer.solve(n_steps=1000)
+    trainer.solve(n_steps=10000)
     trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
+    
     
     # Concurrent run
     # Something does not feel right. Every batch s
@@ -208,9 +259,10 @@ if __name__ == "__main__":
     
     # Loading strategies and analysis
     trainer.load_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
+    trainer.visualize_strategies(num_to_vis=32, nrows=4)
     for key, node in trainer.nodes.items():
-        if "|(1,)|" in key:
-            print(f"Infoset: {key}, Average Strategy: {node.get_average_strategy()}")
+        # if "|(1,)|" in key:
+        print(f"Infoset: {key}, Average Strategy: {node.get_average_strategy()}")
             
     # TODO: Second player is not optimised. Always playing from the perspective of the
     # first player. Need to implement alternating players. The player Y is defined as the one
