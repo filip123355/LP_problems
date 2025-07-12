@@ -3,11 +3,12 @@ import concurrent.futures
 import copy 
 import matplotlib.pyplot as plt
 import pickle as pkl
+import networkx as nx
 
 from tqdm import tqdm
 from time import time
 
-N_DIE_SIDES = 6
+N_DIE_SIDES = 2
 N_PLAYERS = 2
 N_DICES = 1
 
@@ -139,17 +140,21 @@ class CFRTrainer:
             self.nodes = pkl.load(file)
         print(f"Strategies have been loaded from: {filename}")
         
-    def visualize_strategies(self, num_to_vis: int, nrows: int=4):
+    def visualize_strategies(self, num_to_vis:int|None=None, nrows: int=4):
         total_infosets = len(self.nodes.keys())
         actual_num_to_vis = min(num_to_vis, total_infosets)
         ncols = max(actual_num_to_vis // nrows + (1 if actual_num_to_vis % nrows else 0), 1)
+        
+        if num_to_vis is None:
+            num_to_vis = total_infosets
+            actual_num_to_vis = total_infosets
         
         print(f"Total infosets available: {total_infosets}")
         print(f"Attempting to visualize: {num_to_vis}")
         print(f"Actually visualizing: {actual_num_to_vis}")
         print(f"Grid size: {nrows}x{ncols}")
         
-        fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4*ncols, 4*nrows))
+        fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4 * ncols, 4 * nrows))
         axs = np.atleast_2d(axs)  # Force 2D array even for single row/col
         
         plot_count = 0
@@ -161,11 +166,10 @@ class CFRTrainer:
             col = plot_count % ncols
             
             # Parse infoset key and get actions
-            bids = key[7:]
+            bids = key.split("|")[-1]
             if bids == "":
                 args = list(range(0, self.claims - 1))
             else:
-                
                 args = list(range([int(bid) for bid in bids.split(",")][-1] + 1, self.claims))
             
             avg_strategy = node.get_average_strategy()
@@ -174,6 +178,18 @@ class CFRTrainer:
                 print(f"Warning: length mismatch for {key}: actions={len(args)}, strategy={len(avg_strategy)}")
                 continue
             
+            key = "x" + key[1:] if key[0] == "0" else "y" + key[1:]
+            
+            key = self.decode_strategy(key)
+            
+            for i, arg in enumerate(args):
+                if i != len(args):
+                    dice_call, face_call = self.decode(arg)
+                    args[i] = f"({dice_call},{face_call})"
+                if key[7:] != "" and i == len(args) - 1:
+                    args[i] = "Bluff"
+                    
+            
             ax = axs[row, col]
             ax.bar(args, avg_strategy)
             ax.set_title(f"Infoset: {key}\nVisits: {node.visits}", fontsize=8)
@@ -181,14 +197,116 @@ class CFRTrainer:
             
             plot_count += 1
         
-        # Hide unused subplots
-        # for i in range(plot_count, nrows * ncols):
-        #     row = i // ncols
-        #     col = i % ncols
-        #     axs[row, col].set_visible(False)
+        plt.tight_layout()
+        plt.show()        
+    
+    @staticmethod    
+    def decode(incex: int) -> tuple[int, int]:
+        total_faces = N_DIE_SIDES
+        dice_call = incex // total_faces + 1
+        face_call = incex % total_faces + 1
+        return dice_call, face_call
+    
+    def decode_strategy(self, key: str) -> str:
         
+        strategy = key.split("|")[-1].split(",")
+        bids = ""
+        
+        if strategy != [""]:
+            for i, bid in enumerate(strategy):
+                bid = self.decode(int(bid))
+                bids += f"({bid[0]},{bid[1]})"
+        
+        return "|".join(key.split("|")[:-1]) + bids if bids != "" else "|".join(key.split("|")[:-1]) + ""
+    
+    def format_node_label(self, key: str) -> str:
+
+        parts = key.split("|")
+        if len(parts) != 3:
+            return key  # fallback
+
+        player_index, rolled_dice, bids = parts
+        return f"{player_index} | {rolled_dice} | {bids}"
+
+    def visualize_strategy_tree(self, max_depth: int = 5, max_nodes: int = 200):
+
+        # Helper to pretty‐print a node key
+        def format_node_label(key: str) -> str:
+            parts = key.split("|")
+            # Expect ['player', '(d1,d2,...)', 'bid1,bid2,...']
+            if len(parts) == 3:
+                player, dice, bids = parts
+                return f"{player} | {dice} | {bids or '∅'}"
+            return key
+
+        G = nx.DiGraph()
+        visited = set()
+
+        # 1) Find **true root**: no bids yet → bids part is empty
+        root_keys = [k for k in self.nodes.keys()
+                    if k.split("|")[2] == ""]  # history == ""
+
+        # 2) BFS queue seeded with all roots at depth 0
+        queue = [(rk, 0) for rk in root_keys]
+
+        while queue and len(visited) < max_nodes:
+            current_key, depth = queue.pop(0)
+            if current_key in visited or depth > max_depth:
+                continue
+            visited.add(current_key)
+
+            node = self.nodes[current_key]
+            history = current_key.split("|")[2]  # bids history
+            base = history.split(",") if history else []
+            last_bid = int(base[-1]) if base and base[0] != "" else -1
+
+            # Valid actions ↑ last_bid
+            actions = list(range(last_bid + 1, self.claims))
+            avg_strat = node.get_average_strategy()
+
+            for i, action in enumerate(actions):
+                next_history = base + [str(action)]
+                next_key = f"{current_key.split('|')[0]}|{current_key.split('|')[1]}|{','.join(next_history)}"
+                prob = avg_strat[i] if i < len(avg_strat) else 0.0
+
+                # Add edge with label and weight
+                G.add_edge(current_key, next_key, label=f"{prob:.2f}", weight=prob)
+
+                # Enqueue for deeper expansion if we have that infoset
+                if next_key in self.nodes:
+                    queue.append((next_key, depth + 1))
+
+        # 3) Draw
+        pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
+        plt.figure(figsize=(14, 10))
+
+        # Edge widths scaled (min width 0.5)
+        widths = [max(0.5, G[u][v]['weight'] * 5) for u, v in G.edges()]
+
+        nx.draw(G, pos,
+                with_labels=False,
+                arrows=True,
+                node_size=400,
+                node_color='lightblue',
+                width=widths,
+                edge_color='gray')
+
+        # Node labels
+        labels = {n: format_node_label(n) for n in G.nodes()}
+        nx.draw_networkx_labels(G, pos, labels=labels, font_size=6)
+
+        # Edge labels
+        edge_labels = nx.get_edge_attributes(G, 'label')
+        nx.draw_networkx_edge_labels(G, pos,
+                                    edge_labels=edge_labels,
+                                    font_color='red',
+                                    font_size=7)
+
+        plt.title(f"Strategy Tree (depth ≤ {max_depth}, nodes ≤ {max_nodes})")
+        plt.axis('off')
         plt.tight_layout()
         plt.show()
+
                 
 def merge_regrets(nodes: dict, worker_nodes_list: list) -> None:
     for key in nodes.keys():
@@ -243,13 +361,14 @@ def solve_concurrent(trainer: CFRTrainer, n_steps: int=10000, n_workers: int=24,
         
 if __name__ == "__main__":    
     
+
+    
     # Definition of a trainer
     trainer = CFRTrainer(numSides=N_DIE_SIDES, numDices=N_DICES)
     
-    # Normal run
-    trainer.solve(n_steps=10000)
-    trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
-    
+    # Normal uni-thread run
+    # trainer.solve(n_steps=10000)
+    # trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
     
     # Concurrent run
     # Something does not feel right. Every batch s
@@ -257,13 +376,13 @@ if __name__ == "__main__":
     # solve_concurrent(trainer, n_steps=240, n_workers=24, sync_points=10) # Requires large n_steps and quite a sizable batch. 
     # Denser sync points ensure stability
     
-    # Loading strategies and analysis
+    # Loading strategies and display analysis
     trainer.load_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
-    trainer.visualize_strategies(num_to_vis=32, nrows=4)
+    # trainer.visualize_strategies(num_to_vis=32, nrows=4)
+    trainer.visualize_strategy_tree(max_depth=4, max_nodes=100)
+    
+    # Print average strategies for all infosets
     for key, node in trainer.nodes.items():
         # if "|(1,)|" in key:
         print(f"Infoset: {key}, Average Strategy: {node.get_average_strategy()}")
-            
-    # TODO: Second player is not optimised. Always playing from the perspective of the
-    # first player. Need to implement alternating players. The player Y is defined as the one
-    # playing the second in the round.
+        
