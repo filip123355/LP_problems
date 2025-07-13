@@ -3,12 +3,10 @@ import matplotlib.pyplot as plt
 
 from time import time
 
-class Buffer:
-    
+class Buffer: 
     """
     The buffer for keeping track what index corresponds to what strategy.
     """
-    
     def __init__(self):
         self.data = dict()
         self.last_ind: int = 0
@@ -25,11 +23,9 @@ class Buffer:
         return len(self.data)
   
 class GameMatrix:
-    
     """
     Class with the game matrix representing a normal form a Bluff through network flow approach.
     """
-    
     game_matrix: np.ndarray
     hashmap: dict
     x_vec: np.ndarray
@@ -142,7 +138,6 @@ class GameMatrix:
             if y_strategy not in self.y_buffer.data.keys():
                 self.y_buffer.add(y_strategy)
         
-        
     def build(self):
         
         start_fill_game_matrix = time()
@@ -186,7 +181,7 @@ class GameMatrix:
         print("\nConstraints saved")
 
 if __name__ == "__main__":
-    num_faces = 2
+    num_faces = 6
     for face in range(1, num_faces + 1):
         gm = GameMatrix(num_dices=1, 
                     num_faces=num_faces,

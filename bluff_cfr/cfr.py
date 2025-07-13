@@ -40,7 +40,7 @@ class CFRTrainer:
     def __init__(self, numSides: int=N_DIE_SIDES, numDices: int=N_DICES):
         self.numSides = numSides
         self.numDices = numDices
-        self.claims = numDices * 2 * numSides + 1# Total possible claims. + 1 for bluff
+        self.claims = numDices * 2 * numSides + 1 # Total possible claims. + 1 for bluff
         self.nodes = {}
     
     def get_utility(self, dices: np.ndarray, history: list, claimant: int, cfr_player: int) -> float:
@@ -53,10 +53,10 @@ class CFRTrainer:
             outcome = 1.0  # claimant wins
         else:
             outcome = -1.0  # claimant loses
-        return outcome if claimant == cfr_player else -outcome
+        return outcome if claimant == cfr_player else -outcome 
     
-    def cfr(self, dices: np.ndarray, player: int, 
-            p0: float=1.0, p1: float=1.0, history: list=None) -> float:
+    def cfr(self, dices: np.ndarray, player: int,
+            p0: float=1.0, p1: float=1.0, history: list|None=None) -> float:
         if history is None:
             history = []
         owner = (len(history)) % 2
@@ -102,8 +102,8 @@ class CFRTrainer:
         if owner == player:
             regrets = action_utils - cf_value
             node.regretSum += regrets * (p1 if player == 0 else p0)
-            node.strategySum += node.strategy * (p0 if player ==0 else p1)
-            node.get_strategy() # Regret matching here
+            node.strategySum += node.strategy * (p0 if player == 0 else p1)
+            node.strategy = node.get_strategy() # Regret matching here
             node.visits += 1
                 
         return cf_value
@@ -129,6 +129,7 @@ class CFRTrainer:
         plt.xlabel("Iteration step")
         plt.hlines(y=0.0, xmin=0, xmax=len(utils), colors='r', linestyles='dotted', alpha=0.5)
         plt.show()
+        # plt.savefig(f"/images/convergance/cfr_training_plot_{self.numDices}_{self.numSides}.png")
         
     def save_strategies(self, filename: str):
         with open(filename, "wb") as file:
@@ -186,10 +187,9 @@ class CFRTrainer:
                 if i != len(args):
                     dice_call, face_call = self.decode(arg)
                     args[i] = f"({dice_call},{face_call})"
-                if key[7:] != "" and i == len(args) - 1:
+                if key.split("|")[-1] != "" and i == len(args) - 1:
                     args[i] = "Bluff"
                     
-            
             ax = axs[row, col]
             ax.bar(args, avg_strategy)
             ax.set_title(f"Infoset: {key}\nVisits: {node.visits}", fontsize=8)
@@ -217,23 +217,21 @@ class CFRTrainer:
                 bid = self.decode(int(bid))
                 bids += f"({bid[0]},{bid[1]})"
         
-        return "|".join(key.split("|")[:-1]) + bids if bids != "" else "|".join(key.split("|")[:-1]) + ""
+        return "|".join(key.split("|")[:-1]) + "|" + bids if bids != "" else "|".join(key.split("|")[:-1]) + "|"
     
     def format_node_label(self, key: str) -> str:
 
         parts = key.split("|")
         if len(parts) != 3:
-            return key  # fallback
+            return key  
 
         player_index, rolled_dice, bids = parts
         return f"{player_index} | {rolled_dice} | {bids}"
 
     def visualize_strategy_tree(self, max_depth: int = 5, max_nodes: int = 200):
 
-        # Helper to pretty‐print a node key
         def format_node_label(key: str) -> str:
             parts = key.split("|")
-            # Expect ['player', '(d1,d2,...)', 'bid1,bid2,...']
             if len(parts) == 3:
                 player, dice, bids = parts
                 return f"{player} | {dice} | {bids or '∅'}"
@@ -242,11 +240,9 @@ class CFRTrainer:
         G = nx.DiGraph()
         visited = set()
 
-        # 1) Find **true root**: no bids yet → bids part is empty
         root_keys = [k for k in self.nodes.keys()
-                    if k.split("|")[2] == ""]  # history == ""
+                    if k.split("|")[2] == ""]  
 
-        # 2) BFS queue seeded with all roots at depth 0
         queue = [(rk, 0) for rk in root_keys]
 
         while queue and len(visited) < max_nodes:
@@ -256,11 +252,10 @@ class CFRTrainer:
             visited.add(current_key)
 
             node = self.nodes[current_key]
-            history = current_key.split("|")[2]  # bids history
+            history = current_key.split("|")[2] 
             base = history.split(",") if history else []
             last_bid = int(base[-1]) if base and base[0] != "" else -1
-
-            # Valid actions ↑ last_bid
+            
             actions = list(range(last_bid + 1, self.claims))
             avg_strat = node.get_average_strategy()
 
@@ -268,19 +263,15 @@ class CFRTrainer:
                 next_history = base + [str(action)]
                 next_key = f"{current_key.split('|')[0]}|{current_key.split('|')[1]}|{','.join(next_history)}"
                 prob = avg_strat[i] if i < len(avg_strat) else 0.0
-
-                # Add edge with label and weight
+                
                 G.add_edge(current_key, next_key, label=f"{prob:.2f}", weight=prob)
 
-                # Enqueue for deeper expansion if we have that infoset
                 if next_key in self.nodes:
                     queue.append((next_key, depth + 1))
 
-        # 3) Draw
         pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
         plt.figure(figsize=(14, 10))
 
-        # Edge widths scaled (min width 0.5)
         widths = [max(0.5, G[u][v]['weight'] * 5) for u, v in G.edges()]
 
         nx.draw(G, pos,
@@ -291,11 +282,9 @@ class CFRTrainer:
                 width=widths,
                 edge_color='gray')
 
-        # Node labels
         labels = {n: format_node_label(n) for n in G.nodes()}
         nx.draw_networkx_labels(G, pos, labels=labels, font_size=6)
-
-        # Edge labels
+        
         edge_labels = nx.get_edge_attributes(G, 'label')
         nx.draw_networkx_edge_labels(G, pos,
                                     edge_labels=edge_labels,
@@ -310,7 +299,6 @@ class CFRTrainer:
                 
 def merge_regrets(nodes: dict, worker_nodes_list: list) -> None:
     for key in nodes.keys():
-        
         for worker_nodes in worker_nodes_list:
             if key in worker_nodes:
                 nodes[key].regretSum += worker_nodes[key].regretSum
@@ -361,14 +349,12 @@ def solve_concurrent(trainer: CFRTrainer, n_steps: int=10000, n_workers: int=24,
         
 if __name__ == "__main__":    
     
-
-    
     # Definition of a trainer
     trainer = CFRTrainer(numSides=N_DIE_SIDES, numDices=N_DICES)
     
     # Normal uni-thread run
-    # trainer.solve(n_steps=10000)
-    # trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
+    trainer.solve(n_steps=100000)
+    trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
     
     # Concurrent run
     # Something does not feel right. Every batch s
@@ -378,11 +364,9 @@ if __name__ == "__main__":
     
     # Loading strategies and display analysis
     trainer.load_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
-    # trainer.visualize_strategies(num_to_vis=32, nrows=4)
+    trainer.visualize_strategies(num_to_vis=32, nrows=4)
     trainer.visualize_strategy_tree(max_depth=4, max_nodes=100)
     
     # Print average strategies for all infosets
     for key, node in trainer.nodes.items():
-        # if "|(1,)|" in key:
         print(f"Infoset: {key}, Average Strategy: {node.get_average_strategy()}")
-        

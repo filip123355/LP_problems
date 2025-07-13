@@ -1,0 +1,4 @@
+FACE=2
+NUM_FACES=2
+NUM_DICES=1
+PATH=f"./game_matrices/{NUM_FACES}f/{FACE}_{NUM_FACES}.npy"
