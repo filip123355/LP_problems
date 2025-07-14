@@ -1,8 +1,9 @@
 import numpy as np 
 import matplotlib.pyplot as plt 
+import os
 
 from time import time
-
+from bluff_lp.constants import NUM_FACES, NUM_DICES
 class Buffer: 
     """
     The buffer for keeping track what index corresponds to what strategy.
@@ -21,7 +22,7 @@ class Buffer:
     
     def __len__(self):
         return len(self.data)
-  
+
 class GameMatrix:
     """
     Class with the game matrix representing a normal form a Bluff through network flow approach.
@@ -36,9 +37,9 @@ class GameMatrix:
     y_buffer: Buffer = Buffer()
     
     def __init__(self, 
-                 num_dices: int, 
-                 num_faces: int,
-                 x_roll:int|None=None):
+                num_dices: int, 
+                num_faces: int,
+                x_roll:int|None=None):
         self.num_dices = num_dices
         self.num_faces = num_faces
         self.b = num_faces * num_dices * 2 # Multiplied by two take into account two players
@@ -181,17 +182,21 @@ class GameMatrix:
         print("\nConstraints saved")
 
 if __name__ == "__main__":
-    num_faces = 6
+    num_faces = NUM_FACES
+    num_dices = NUM_DICES
     for face in range(1, num_faces + 1):
-        gm = GameMatrix(num_dices=1, 
+        gm = GameMatrix(num_dices=num_dices, 
                     num_faces=num_faces,
                     x_roll=face)
         gm.build_buffers()
         gm.build()
-        gm.save(name=f"{face}_{num_faces}.npy", path=f"bluff_lp/game_matrices/{num_faces}f")
+        os.makedirs(f"bluff_lp/game_matrices/{num_dices}_{num_faces}f", exist_ok=True)
+        gm.save(name=f"{face}_{num_faces}.npy",
+                path=f"bluff_lp/game_matrices/{num_dices}_{num_faces}f")
         
     gm.build_constraints()
-    gm.save_constraints(path=f"bluff_lp/game_constraints/{num_faces}f")
+    os.makedirs(f"bluff_lp/game_constraints/{num_dices}_{num_faces}f", exist_ok=True)
+    gm.save_constraints(path=f"bluff_lp/game_constraints/{num_dices}_{num_faces}f")
     print(gm.x_buffer.data)
     print(gm.y_buffer.data)
     gm.plot()
