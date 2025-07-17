@@ -1,9 +1,11 @@
 import numpy as np 
 import matplotlib.pyplot as plt 
 import os
+import pickle as pkl
 
 from time import time
-from bluff_lp.constants import NUM_FACES, NUM_DICES
+from bluff_lp.constants import (NUM_FACES, NUM_DICES, ROLL)
+from tqdm import tqdm
 class Buffer: 
     """
     The buffer for keeping track what index corresponds to what strategy.
@@ -92,7 +94,7 @@ class GameMatrix:
         g_v /= self.num_faces
         return g_v if player else -g_v
     
-    def build_constraints(self):
+    def build_constraints(self, verbose: bool=False):
         
         def _build(buffer: Buffer) -> np.ndarray:
             constraints = np.zeros((2, len(buffer) + 1))
@@ -127,7 +129,8 @@ class GameMatrix:
         self.x_vec[0] = 1
         self.y_vec[0] = 1
         stop = time()
-        print(f"\nFilling constraint matrices in time: {stop - start} s")
+        if verbose:
+            print(f"\nFilling constraint matrices in time: {stop - start} s")
         
     def build_buffers(self):
         for index in range(1, 2 ** self.b):
@@ -139,7 +142,7 @@ class GameMatrix:
             if y_strategy not in self.y_buffer.data.keys():
                 self.y_buffer.add(y_strategy)
         
-    def build(self):
+    def build(self, verbose: bool=False):
         
         start_fill_game_matrix = time()
         self.game_matrix = np.zeros((len(self.x_buffer), len(self.y_buffer)))
@@ -162,7 +165,8 @@ class GameMatrix:
         self.game_matrix = np.concatenate((np.repeat(0, self.game_matrix.shape[1]).reshape(1, -1), self.game_matrix), axis=0)
         stop_fill_game_matrix = time()
         
-        print(f"\nFilling game matrix in time: {stop_fill_game_matrix - start_fill_game_matrix} s")
+        if verbose:
+            print(f"\nFilling game matrix in time: {stop_fill_game_matrix - start_fill_game_matrix} s")
             
     def plot(self):
         plt.matshow(self.game_matrix)
@@ -170,34 +174,45 @@ class GameMatrix:
         plt.show()
     
     def save(self, 
-             name: str,
-             path :str="game_matrices"):
+            name: str,
+            path :str="game_matrices",
+            verbose: bool=False):
         np.save(f"{path}/{name}", self.game_matrix)
-        print(f"\nMatrix saved under: {path}/{name}")
+        if verbose:
+            print(f"\nMatrix saved under: {path}/{name}")
     
     def save_constraints(self,
-                         path : str="game_constraints"):
+                        path : str="game_constraints", 
+                        verbose: bool=False):
         np.save(f"{path}/x.npy", self.x_constraints)
         np.save(f"{path}/y.npy", self.y_constraints)
-        print("\nConstraints saved")
+        if verbose: 
+            print("\nConstraints saved")
 
 if __name__ == "__main__":
     num_faces = NUM_FACES
     num_dices = NUM_DICES
-    for face in range(1, num_faces + 1):
+    verbose = False
+    for face in tqdm(range(1, num_faces + 1)):
         gm = GameMatrix(num_dices=num_dices, 
                     num_faces=num_faces,
                     x_roll=face)
         gm.build_buffers()
-        gm.build()
+        gm.build(verbose=verbose)
         os.makedirs(f"bluff_lp/game_matrices/{num_dices}_{num_faces}f", exist_ok=True)
         gm.save(name=f"{face}_{num_faces}.npy",
-                path=f"bluff_lp/game_matrices/{num_dices}_{num_faces}f")
+                path=f"bluff_lp/game_matrices/{num_dices}_{num_faces}f", verbose=verbose)
         
     gm.build_constraints()
     os.makedirs(f"bluff_lp/game_constraints/{num_dices}_{num_faces}f", exist_ok=True)
     gm.save_constraints(path=f"bluff_lp/game_constraints/{num_dices}_{num_faces}f")
-    print(gm.x_buffer.data)
-    print(gm.y_buffer.data)
-    gm.plot()
+    # print(gm.x_buffer.data)
+    # print(gm.y_buffer.data)
+    # gm.plot()
     
+    # Saving the buffers
+    os.makedirs(f"bluff_lp/buffers/{num_dices}_{num_faces}f", exist_ok=True)
+    with open(f"bluff_lp/buffers/{num_dices}_{num_faces}f/x_buffer.pkl", "wb") as f:
+        pkl.dump(gm.x_buffer.data, f)
+    with open(f"bluff_lp/buffers/{num_dices}_{num_faces}f/y_buffer.pkl", "wb") as f:
+        pkl.dump(gm.y_buffer.data, f)
