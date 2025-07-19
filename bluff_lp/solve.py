@@ -1,19 +1,14 @@
 import numpy as np
 import pyscipopt 
 import os
+import itertools
 
-from bluff_lp.constants import (NUM_FACES, NUM_DICES, ROLL)
+from bluff_lp.constants import (NUM_FACES, NUM_DICES)
 
-def solve_game_matix(face: int,
-                    save: bool=True, 
-                    verbose: bool=False) -> None:
-    """Solves the game matrix for Bluff using LP flow approach.
-
-    Args:
-        path (str, optional): Path of the game matrix for roll=FACE.
-    """
+def solve_game_matrix_for_roll(roll, save=True, verbose=False):
+    print(roll)
     # Primary
-    A = 1 / (NUM_DICES * NUM_FACES) * np.load(f"bluff_lp/game_matrices/{NUM_DICES}_{NUM_FACES}f/{face}_{NUM_FACES}.npy")
+    A = 1 / (NUM_DICES * NUM_FACES) * np.load(f"bluff_lp/game_matrices/{NUM_DICES}_{NUM_FACES}f/{roll}_{NUM_FACES}.npy")
     E = np.load(f"bluff_lp/game_constraints/{NUM_DICES}_{NUM_FACES}f/x.npy")
     F = np.load(f"bluff_lp/game_constraints/{NUM_DICES}_{NUM_FACES}f/y.npy")
     
@@ -41,15 +36,15 @@ def solve_game_matix(face: int,
     lp.optimize()
     
     if verbose:
-        print(f"\nPrimary strategy for face {face}:")
+        print(f"\nPrimary strategy for roll {roll}:")
         for i in range(m):
             print(f"{i}: {lp.getVal(x[i])}")
         
     strategy = np.array([lp.getVal(x[i]) for i in range(m)])
         
     if save:
-        os.makedirs(f"bluff_lp/solutions/{NUM_FACES}", exist_ok=True)
-        np.save(f"bluff_lp/solutions/{NUM_FACES}/strategy_{face}_{NUM_FACES}.npy", strategy)
+        os.makedirs(f"bluff_lp/solutions/{NUM_DICES}_{NUM_FACES}", exist_ok=True)
+        np.save(f"bluff_lp/solutions/{NUM_DICES}_{NUM_FACES}/strategy_{roll}_{NUM_FACES}.npy", strategy)
         
     # Dual
     lp = pyscipopt.Model()
@@ -69,22 +64,20 @@ def solve_game_matix(face: int,
     lp.optimize()
     
     if verbose:
-        print(f"\nDual strategy for face {face}:")
+        print(f"\nDual strategy for roll {roll}:")
         for i in range(n):
             print(f"{i}: {lp.getVal(y[i])}")
             
     dual_strategy = np.array([lp.getVal(y[i]) for i in range(n)])
         
     if save:
-        np.save(f"bluff_lp/solutions/{NUM_FACES}/strategy_{face}_{NUM_FACES}_dual.npy", dual_strategy)
+        np.save(f"bluff_lp/solutions/{NUM_DICES}_{NUM_FACES}/strategy_{roll}_{NUM_FACES}_dual.npy", dual_strategy)
         
-    
 def solve_player():
-    for face in range(1, NUM_FACES + 1):
-        print(f"\nSolving game matrix for face {face}...")
-        solve_game_matix(face=face, 
-                        save=True)
-        
+    faces = range(1, NUM_FACES + 1)
+    for roll in itertools.product(faces, repeat=NUM_DICES):
+        print(f"\nSolving game matrix for roll {roll}...")
+        solve_game_matrix_for_roll(roll, save=True)
+
 if __name__ == "__main__":
     solve_player()
-    

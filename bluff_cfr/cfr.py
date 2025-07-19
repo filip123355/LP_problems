@@ -7,10 +7,7 @@ import networkx as nx
 
 from tqdm import tqdm
 from time import time
-
-N_DIE_SIDES = 2
-N_PLAYERS = 2
-N_DICES = 1
+from bluff_cfr.constants import (N_DICES, N_DIE_SIDES, N_PLAYERS)   
 
 class Node:
     def __init__(self, numActions: int):

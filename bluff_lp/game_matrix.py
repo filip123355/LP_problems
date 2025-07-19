@@ -2,10 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt 
 import os
 import pickle as pkl
+import itertools
 
 from time import time
-from bluff_lp.constants import (NUM_FACES, NUM_DICES, ROLL)
-from tqdm import tqdm
+from bluff_lp.constants import (NUM_FACES, NUM_DICES)
 class Buffer: 
     """
     The buffer for keeping track what index corresponds to what strategy.
@@ -45,10 +45,13 @@ class GameMatrix:
         self.num_dices = num_dices
         self.num_faces = num_faces
         self.b = num_faces * num_dices * 2 # Multiplied by two take into account two players
-        self.x_roll = x_roll
+        if x_roll is None:
+            self.x_roll = tuple(np.random.randint(1, self.num_faces + 1, size=self.num_dices))
+        else:
+            self.x_roll = x_roll if isinstance(x_roll, (tuple, list, np.ndarray)) else (x_roll,)
         
     def roll(self):
-        self.x_roll = np.random.randint(1, self.num_faces)
+        self.x_roll = tuple(np.random.randint(1, self.num_faces + 1, size=self.num_dices))
 
     def bid_decode(self, index: int) -> tuple[int, int]:
         total_faces = self.num_faces
@@ -84,14 +87,14 @@ class GameMatrix:
                 player: bool,
                 ) -> float:
         g_v = 0
-        for y_roll in range(1, self.num_faces + 1):
-            rolls = [y_roll, self.x_roll]
+        for y_roll in itertools.product(range(1, self.num_faces + 1), repeat=self.num_dices):
+            rolls = list(y_roll) + list(self.x_roll)
             actual_count = rolls.count(face_call)
             if actual_count >= dice_call:
-                g_v += 1  
+                g_v += 1
             else:
-                g_v -= 1  
-        g_v /= self.num_faces
+                g_v -= 1
+        g_v /= self.num_faces ** self.num_dices
         return g_v if player else -g_v
     
     def build_constraints(self, verbose: bool=False):
@@ -193,14 +196,12 @@ if __name__ == "__main__":
     num_faces = NUM_FACES
     num_dices = NUM_DICES
     verbose = False
-    for face in tqdm(range(1, num_faces + 1)):
-        gm = GameMatrix(num_dices=num_dices, 
-                    num_faces=num_faces,
-                    x_roll=face)
+    for x_roll in itertools.product(range(1, num_faces + 1), repeat=num_dices):
+        gm = GameMatrix(num_dices=num_dices, num_faces=num_faces, x_roll=x_roll)
         gm.build_buffers()
         gm.build(verbose=verbose)
         os.makedirs(f"bluff_lp/game_matrices/{num_dices}_{num_faces}f", exist_ok=True)
-        gm.save(name=f"{face}_{num_faces}.npy",
+        gm.save(name=f"{x_roll}_{num_faces}.npy",
                 path=f"bluff_lp/game_matrices/{num_dices}_{num_faces}f", verbose=verbose)
         
     gm.build_constraints()

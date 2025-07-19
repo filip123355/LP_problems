@@ -1,0 +1,3 @@
+N_DIE_SIDES = 2
+N_PLAYERS = 2
+N_DICES = 1
