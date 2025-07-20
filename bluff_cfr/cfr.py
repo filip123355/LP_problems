@@ -39,7 +39,8 @@ class CFRTrainer:
         self.claims = numDices * 2 * numSides + 1 # Total possible claims. + 1 for bluff
         self.nodes = {}
     
-    def get_utility(self, dices: np.ndarray, history: list, claimant: int, cfr_player: int) -> float:
+    def get_utility(self, dices: np.ndarray, history: list, 
+                    claimant: int, cfr_player: int) -> float:
         # The last action in history should be "bluff" (self.claims - 1)
         # The claim being challenged is the second-to-last action
         if len(history) < 2:
@@ -58,9 +59,11 @@ class CFRTrainer:
         else:
             outcome = -1.0  # challenger wins
             
-        # Return utility from cfr_player's perspective
-        return outcome if claimant == cfr_player else -outcome 
-    
+        # Return utility from Player 0's perspective always
+        # If claimant is Player 0: return outcome directly
+        # If claimant is Player 1: return -outcome (Player 0 gets opposite)
+        return outcome if claimant == cfr_player else -outcome
+
     def cfr(self, dices: np.ndarray, player: int,
             p0: float=1.0, p1: float=1.0, history: list|None=None) -> float:
         if history is None:
@@ -427,22 +430,43 @@ if __name__ == "__main__":
     
     # Definition of a trainer
     trainer = CFRTrainer(numSides=N_DIE_SIDES, numDices=N_DICES)
+    old_trainer = CFRTrainer(numSides=N_DIE_SIDES, numDices=N_DICES)
+    old_trainer.load_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
     
     # Normal uni-thread run
-    # trainer.solve(n_steps=10000)
-    # trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
+    trainer.solve(n_steps=1000000)
+    trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
     
+    # for key in old_trainer.nodes.keys():
+    #     old_node = old_trainer.nodes[key]
+    #     new_node = trainer.nodes[key]
+    #     old_strat = old_node.get_average_strategy()
+    #     new_strat = new_node.get_average_strategy()
+    #     if not np.isclose(old_strat, new_strat, atol=1e-2).all():
+    #         diff = np.sum(np.abs(old_strat - new_strat)) / 2
+    #         print(f"Significant difference in infoset {key}: total diff = {diff}")
+    #         actions = list(range(len(old_strat)))
+    #         plt.figure(figsize=(8,4))
+    #         plt.bar([str(a) for a in actions], old_strat, alpha=0.5, label='old')
+    #         plt.bar([str(a) for a in actions], new_strat, alpha=0.5, label='new')
+    #         plt.title(f"Infoset: {key}\nTotal diff: {diff:.4f}")
+    #         plt.xlabel("Action index")
+    #         plt.ylabel("Average strategy")
+    #         plt.legend()
+    #         plt.tight_layout()
+    #         plt.show()
+            
     # Concurrent run
-    # Something does not feel right. Every batch s
+    # Something does not feel right. Every batch 
     # Seems like it is trained from scratch
     # solve_concurrent(trainer, n_steps=240, n_workers=24, sync_points=10) # Requires large n_steps and quite a sizable batch. 
     # Denser sync points ensure stability
     
     # Loading strategies and display analysis
-    trainer.load_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
-    trainer.visualize_strategies(num_to_vis=32, nrows=4)
-    trainer.visualize_strategy_tree(max_depth=4, max_nodes=100)
+    # trainer.load_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
+    # trainer.visualize_strategies(num_to_vis=32, nrows=4)
+    # trainer.visualize_strategy_tree(max_depth=4, max_nodes=100)
     
     # Print average strategies for all infosets
-    for key, node in trainer.nodes.items():
-        print(f"Infoset: {key}, Average Strategy: {node.get_average_strategy()}")
+    # for key, node in trainer.nodes.items():
+    #     print(f"Infoset: {key}, Average Strategy: {node.get_average_strategy()}")
