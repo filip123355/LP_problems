@@ -6,6 +6,7 @@ import itertools
 
 from time import time
 from bluff_lp.constants import (NUM_FACES, NUM_DICES)
+from tqdm import tqdm
 class Buffer: 
     """
     The buffer for keeping track what index corresponds to what strategy.
@@ -35,16 +36,17 @@ class GameMatrix:
     y_vec: np.ndarray
     x_constraints: np.ndarray
     y_constraints: np.ndarray
-    x_buffer: Buffer = Buffer()
-    y_buffer: Buffer = Buffer()
     
     def __init__(self, 
                 num_dices: int, 
                 num_faces: int,
-                x_roll:int|None=None):
+                x_roll: tuple|None=None):
         self.num_dices = num_dices
         self.num_faces = num_faces
         self.b = num_faces * num_dices * 2 # Multiplied by two take into account two players
+        # Initialize fresh buffers per instance
+        self.x_buffer = Buffer()
+        self.y_buffer = Buffer()
         if x_roll is None:
             self.x_roll = tuple(np.random.randint(1, self.num_faces + 1, size=self.num_dices))
         else:
@@ -137,8 +139,7 @@ class GameMatrix:
         
     def build_buffers(self):
         for index in range(1, 2 ** self.b):
-            strategy_rep = bin(index)
-            strategy_rep += '1'
+            strategy_rep = bin(index) + '1'
             x_strategy, y_strategy = self.decode_strategy(strategy_rep)
             if x_strategy not in self.x_buffer.data.keys():
                 self.x_buffer.add(x_strategy)

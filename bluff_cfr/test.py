@@ -1,6 +1,8 @@
 import itertools 
 import numpy as np 
-from bluff_cfr.cfr import (CFRTrainer, Node, N_DICES, N_DIE_SIDES, N_PLAYERS) 
+
+from bluff_cfr.cfr import (CFRTrainer, Node) 
+from bluff_cfr.constants import (N_DICES, N_DIE_SIDES, N_PLAYERS)
 
 def load_trainer(path: str) -> CFRTrainer:
     trainer = CFRTrainer()
@@ -23,7 +25,7 @@ def self_play_value(trainer: CFRTrainer, avg_strat: dict) -> float:
 def rollout_mixed(trainer: CFRTrainer, avg_strat: dict, dices: np.ndarray, 
                 history: list|None=None) -> float:
     if history and history[-1] == trainer.claims - 1:
-        claimant = (len(history)) % N_PLAYERS
+        claimant = (len(history) - 2) % N_PLAYERS
         return trainer.get_utility(np.array(dices), history, claimant, 0)
     owner = len(history) % N_PLAYERS
     infoset = f"{owner}|{tuple(dices[owner])}|{','.join(map(str, history))}"
@@ -48,7 +50,7 @@ def best_response_value(trainer: CFRTrainer, avg_strat: dict, player: int) -> fl
 def rollout_br(trainer: CFRTrainer, avg_strat: dict, dices: np.ndarray, 
             history: list|None, br_player: int) -> float:
     if history and history[-1] == trainer.claims - 1:
-        claimant = (len(history)) % N_PLAYERS
+        claimant = (len(history) - 2) % N_PLAYERS
         return trainer.get_utility(np.array(dices), history, claimant, br_player)
     owner = len(history) % N_PLAYERS
     infoset = f"{owner}|{tuple(dices[owner])}|{','.join(map(str, history))}"

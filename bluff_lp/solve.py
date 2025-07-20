@@ -6,7 +6,6 @@ import itertools
 from bluff_lp.constants import (NUM_FACES, NUM_DICES)
 
 def solve_game_matrix_for_roll(roll, save=True, verbose=False):
-    print(roll)
     # Primary
     A = 1 / (NUM_DICES * NUM_FACES) * np.load(f"bluff_lp/game_matrices/{NUM_DICES}_{NUM_FACES}f/{roll}_{NUM_FACES}.npy")
     E = np.load(f"bluff_lp/game_constraints/{NUM_DICES}_{NUM_FACES}f/x.npy")

@@ -17,14 +17,13 @@ class Node:
         self.strategySum = np.zeros(numActions, dtype=np.float32)
         self.visits = 0
         
-    def get_strategy(self) -> np.ndarray:
+    def regret_matching(self):
         self.strategy = np.maximum(self.regretSum, 0)
         normalizingSum = np.sum(self.strategy)
         if normalizingSum > 0:
             self.strategy /= normalizingSum
         else:
             self.strategy = np.ones_like(self.strategy) / len(self.strategy)
-        return self.strategy
     
     def get_average_strategy(self) -> np.ndarray:
         normalizingSum = np.sum(self.strategySum)
@@ -41,15 +40,25 @@ class CFRTrainer:
         self.nodes = {}
     
     def get_utility(self, dices: np.ndarray, history: list, claimant: int, cfr_player: int) -> float:
-        last_claim = history[-2] # Last number represents bluff
-        quantity = last_claim // self.numSides + 1
-        face = last_claim % self.numSides + 1
+        # The last action in history should be "bluff" (self.claims - 1)
+        # The claim being challenged is the second-to-last action
+        if len(history) < 2:
+            return 0.0  # Should not happen in valid terminal states
+            
+        challenged_claim = history[-2]  # The claim being challenged
+        quantity = challenged_claim // self.numSides + 1
+        face = challenged_claim % self.numSides + 1
+        
         # Count across ALL dice (both players)
-        count = np.count_nonzero(dices == face)
+        total_dice = dices.flatten()
+        count = np.count_nonzero(total_dice == face)
+        
         if count >= quantity:
-            outcome = 1.0  # claimant wins
+            outcome = 1.0  # claimant (who made the claim) wins
         else:
-            outcome = -1.0  # claimant loses
+            outcome = -1.0  # challenger wins
+            
+        # Return utility from cfr_player's perspective
         return outcome if claimant == cfr_player else -outcome 
     
     def cfr(self, dices: np.ndarray, player: int,
@@ -60,17 +69,21 @@ class CFRTrainer:
         owner_dice = tuple(dices[owner, :])
         infoset_key = f"{owner}|{owner_dice}|{','.join(map(str, history))}"
         
-        # Terminal condition - game ends when highest claim is made
+        # Terminal condition - game ends when someone calls bluff
         if len(history) > 0 and history[-1] == self.claims - 1:
-            claimant = (len(history)) % 2  # Alternating claimants
+            # The player who made the claim being challenged
+            claimant = (len(history) - 2) % N_PLAYERS # -2 because we need the player who made the challenged claim
             return self.get_utility(dices, history, claimant, player)
         
-        # Get valid actions (can only bid higher than last claim)
+        # Get valid actions
         last_claim = history[-1] if len(history) > 0 else -1
+        
         if last_claim == -1:
-            actions = list(range(0, self.claims - 1)) # No possibility to bluff at start
+            # First move: can make any claim from 0 to claims-2, but not bluff
+            actions = list(range(0, self.claims - 1))
         else:
-            actions = list(range(last_claim + 1, self.claims))
+            # Can make higher claims or call bluff
+            actions = list(range(last_claim + 1, self.claims))  # Includes bluff as last action
         numActions = len(actions)
         
         # Get or create node
@@ -82,25 +95,28 @@ class CFRTrainer:
         cf_value = 0.0
         action_utils = np.zeros(numActions, dtype=np.float32)
         
+        # Get the current strategy before recursion
+        strategy = node.strategy
+        
         # Calculate counterfactual values for each action
         for i, action in enumerate(actions):
             new_history = history + [action]
             if owner == 0:
                 action_utils[i] = self.cfr(dices, player,
-                            p0 * node.strategy[i], p1,
+                            p0 * strategy[i], p1,
                             new_history)
             else:
                 action_utils[i] = self.cfr(dices, player,
-                            p0, p1 * node.strategy[i],
+                            p0, p1 * strategy[i],
                             new_history)
-            cf_value += node.strategy[i] * action_utils[i]
+            cf_value += strategy[i] * action_utils[i]
         
         # Update regret and strategy
         if owner == player:
             regrets = action_utils - cf_value
             node.regretSum += regrets * (p1 if player == 0 else p0)
-            node.strategySum += node.strategy * (p0 if player == 0 else p1)
-            node.strategy = node.get_strategy() # Regret matching here
+            node.strategySum += strategy * (p0 if player == 0 else p1)
+            node.regret_matching() # Regret matching here
             node.visits += 1
                 
         return cf_value
@@ -130,7 +146,7 @@ class CFRTrainer:
         
     def save_strategies(self, filename: str):
         with open(filename, "wb") as file:
-            pkl.dump(trainer.nodes, file)
+            pkl.dump(self.nodes, file)
         print(f"Strategies have been saved to: {filename}")
         
     def load_strategies(self, filename: str):
@@ -231,12 +247,13 @@ class CFRTrainer:
             parts = key.split("|")
             if len(parts) == 3:
                 player, dice, bids = parts
-                return f"{player} | {dice} | {bids or '∅'}"
+                return f"P{player} | {dice} | {bids or '∅'}"
             return key
 
         G = nx.DiGraph()
         visited = set()
 
+        # Find true root nodes (empty history for both players)
         root_keys = [k for k in self.nodes.keys()
                     if k.split("|")[2] == ""]  
 
@@ -248,50 +265,112 @@ class CFRTrainer:
                 continue
             visited.add(current_key)
 
-            node = self.nodes[current_key]
-            history = current_key.split("|")[2] 
-            base = history.split(",") if history else []
-            last_bid = int(base[-1]) if base and base[0] != "" else -1
+            # Parse current node information
+            parts = current_key.split("|")
+            current_player = int(parts[0])
+            current_dice = parts[1]
+            history_str = parts[2]
             
-            actions = list(range(last_bid + 1, self.claims))
-            avg_strat = node.get_average_strategy()
-
-            for i, action in enumerate(actions):
-                next_history = base + [str(action)]
-                next_key = f"{current_key.split('|')[0]}|{current_key.split('|')[1]}|{','.join(next_history)}"
-                prob = avg_strat[i] if i < len(avg_strat) else 0.0
+            # Parse history
+            if history_str == "":
+                history = []
+            else:
+                history = [int(x) for x in history_str.split(",")]
+            
+            # Calculate valid actions using same logic as CFR
+            last_claim = history[-1] if len(history) > 0 else -1
+            
+            if last_claim == -1:
+                # First move: can make any claim from 0 to claims-2, but not bluff
+                actions = list(range(0, self.claims - 1))
+            else:
+                # Can make higher claims or call bluff
+                actions = list(range(last_claim + 1, self.claims))
+            
+            if current_key in self.nodes:
+                node = self.nodes[current_key]
+                avg_strat = node.get_average_strategy()
                 
-                G.add_edge(current_key, next_key, label=f"{prob:.2f}", weight=prob)
+                for i, action in enumerate(actions):
+                    new_history = history + [action]
+                    
+                    # Determine next player
+                    next_player = (len(new_history)) % 2
+                    
+                    # Create next key - need to find the appropriate dice configuration
+                    # For visualization, we'll use the same dice for simplicity
+                    next_key = f"{next_player}|{current_dice}|{','.join(map(str, new_history))}"
+                    
+                    prob = avg_strat[i] if i < len(avg_strat) else 0.0
+                    
+                    # Add edge with action and probability labels
+                    action_label = f"A{action}" if action < self.claims - 1 else "Bluff"
+                    G.add_edge(current_key, next_key, 
+                            label=f"{action_label}\n{prob:.2f}", 
+                            weight=prob,
+                            action=action)
 
-                if next_key in self.nodes:
-                    queue.append((next_key, depth + 1))
+                    # Add to queue if this is a valid continuation and not terminal
+                    if action != self.claims - 1:  # Not a bluff call (terminal)
+                        queue.append((next_key, depth + 1))
 
-        pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
-        plt.figure(figsize=(14, 10))
+                    # Add to queue if this is a valid continuation and not terminal
+                    if action != self.claims - 1:  # Not a bluff call (terminal)
+                        queue.append((next_key, depth + 1))
 
-        widths = [max(0.5, G[u][v]['weight'] * 5) for u, v in G.edges()]
+        # Create layout
+        try:
+            pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
+        except:
+            # Fallback to spring layout if graphviz is not available
+            pos = nx.spring_layout(G, k=3, iterations=50)
+            
+        plt.figure(figsize=(16, 12))
+
+        # Draw nodes with different colors for different players
+        node_colors = []
+        for node in G.nodes():
+            player = int(node.split("|")[0])
+            if player == 0:
+                node_colors.append('lightblue')
+            else:
+                node_colors.append('lightcoral')
+
+        widths = [max(0.5, G[u][v]['weight'] * 3) for u, v in G.edges()]
 
         nx.draw(G, pos,
                 with_labels=False,
                 arrows=True,
-                node_size=400,
-                node_color='lightblue',
+                node_size=800,
+                node_color=node_colors,
                 width=widths,
                 edge_color='gray')
 
+        # Draw node labels
         labels = {n: format_node_label(n) for n in G.nodes()}
-        nx.draw_networkx_labels(G, pos, labels=labels, font_size=6)
+        nx.draw_networkx_labels(G, pos, labels=labels, font_size=8)
         
+        # Draw edge labels with action and probability
         edge_labels = nx.get_edge_attributes(G, 'label')
         nx.draw_networkx_edge_labels(G, pos,
                                     edge_labels=edge_labels,
                                     font_color='red',
-                                    font_size=7)
+                                    font_size=6)
 
-        plt.title(f"Strategy Tree (depth ≤ {max_depth}, nodes ≤ {max_nodes})")
+        plt.title(f"Strategy Tree (depth ≤ {max_depth}, nodes ≤ {max_nodes})\nBlue=Player0, Red=Player1")
         plt.axis('off')
         plt.tight_layout()
         plt.show()
+
+        print(f"Tree contains {len(G.nodes())} nodes and {len(G.edges())} edges")
+        print(f"Root nodes: {len(root_keys)}")
+        if len(G.nodes()) > 0:
+            depths = {}
+            for node in G.nodes():
+                history_str = node.split("|")[2]
+                depth = len(history_str.split(",")) if history_str else 0
+                depths[depth] = depths.get(depth, 0) + 1
+            print(f"Nodes by depth: {depths}")
 
                 
 def merge_regrets(nodes: dict, worker_nodes_list: list) -> None:
@@ -350,8 +429,8 @@ if __name__ == "__main__":
     trainer = CFRTrainer(numSides=N_DIE_SIDES, numDices=N_DICES)
     
     # Normal uni-thread run
-    trainer.solve(n_steps=100000)
-    trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
+    # trainer.solve(n_steps=10000)
+    # trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
     
     # Concurrent run
     # Something does not feel right. Every batch s
