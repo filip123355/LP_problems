@@ -2,7 +2,6 @@ import numpy as np
 import itertools
 from bluff_lp.constants import (NUM_FACES, NUM_DICES)
 
-
 def test_mixed_vs_pure(roll, tol=1e-5):
     print(f"\n--- Testing mixed strategy vs pure strategies for roll {roll} ---")
     A = np.load(f"bluff_lp/game_matrices/{NUM_DICES}_{NUM_FACES}f/{roll}_{NUM_FACES}.npy")
