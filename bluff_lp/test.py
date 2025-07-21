@@ -57,7 +57,7 @@ if __name__ == "__main__":
             print(f"Test failed for roll {roll}: {e}")
     print("\n--------------------")
     if not fail:
-        print("\nAll tests passed successfully!")
+        print("\n\033[92m✔ All tests passed successfully!")
     else:
-        print("\nSome tests failed. Please check the output above.")
+        print("\n\033[91m✖ Some tests failed. Please check the output above.")
     print("\n--- End of tests ---")

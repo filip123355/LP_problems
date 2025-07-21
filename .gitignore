@@ -1,1 +1,9 @@
+# Folders
 venv/
+
+# Files
+.env.local
+.env
+
+# File types
+*.pdf

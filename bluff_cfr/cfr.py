@@ -434,7 +434,7 @@ if __name__ == "__main__":
     old_trainer.load_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
     
     # Normal uni-thread run
-    trainer.solve(n_steps=1000000)
+    trainer.solve(n_steps=100000)
     trainer.save_strategies(f"bluff_cfr/strategies/strategy_{N_DICES}_{N_DIE_SIDES}.pkl")
     
     # for key in old_trainer.nodes.keys():

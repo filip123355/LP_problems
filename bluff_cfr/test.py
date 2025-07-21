@@ -36,31 +36,6 @@ def test_nash_equilibrium_property(trainer: CFRTrainer, avg_strat: dict, toleran
     print(f"Nash equilibrium violations: {violations}")
     return violations == 0
 
-def test_symmetry_properties(trainer: CFRTrainer, avg_strat: dict, tolerance=1e-3):
-    """
-    Test 2: Symmetry Properties
-    In symmetric games, symmetric situations should have symmetric strategies.
-    """
-    print("=== Testing Symmetry Properties ===")
-    symmetry_violations = 0
-    
-    if N_DIE_SIDES == 2:
-        for player in [0, 1]:
-            key1 = f"{player}|(1,)|"
-            key2 = f"{player}|(2,)|"
-            
-            if key1 in avg_strat and key2 in avg_strat:
-                strat1 = avg_strat[key1]
-                strat2 = avg_strat[key2]
-                
-                if not np.allclose(strat1, strat2, atol=tolerance):
-                    print(f"Dice symmetry violation: {key1} vs {key2}")
-                    print(f"  Strategies: {strat1} vs {strat2}")
-                    symmetry_violations += 1
-    
-    print(f"Symmetry violations: {symmetry_violations}")
-    return symmetry_violations == 0
-
 def test_dominated_strategies(trainer: CFRTrainer, avg_strat: dict, tolerance=1e-3):
     """
     Test 3: No Dominated Strategies
@@ -140,37 +115,6 @@ def test_convergence_stability(trainer1: CFRTrainer, trainer2: CFRTrainer, toler
     print(f"Maximum strategy difference: {max_diff:.6f}")
     print(f"Infosets with significant differences: {significant_diffs}")
     return significant_diffs == 0
-
-def test_rational_bluffing(trainer: CFRTrainer, avg_strat: dict, tolerance=1e-3):
-    """
-    Test 6: Rational Bluffing Behavior
-    Players should bluff sometimes but not always, and bluffing frequency should make sense.
-    """
-    print("=== Testing Rational Bluffing Behavior ===")
-    
-    bluffing_issues = 0
-    
-    for infoset_key, strategy in avg_strat.items():
-        parts = infoset_key.split("|")
-        player = int(parts[0])
-        dice = eval(parts[1])
-        history = [int(x) for x in parts[2].split(",")] if parts[2] else []
-        
-        actions = get_valid_actions(trainer, history)
-        
-        if trainer.claims - 1 in actions: 
-            bluff_idx = actions.index(trainer.claims - 1)
-            bluff_prob = strategy[bluff_idx]
-            
-            if len(history) > 0: 
-                if bluff_prob < tolerance:
-                    print(f"Never bluffs at {infoset_key}")
-                elif bluff_prob > 1.0 - tolerance:
-                    print(f"Always bluffs at {infoset_key}")
-                    bluffing_issues += 1
-    
-    print(f"Irrational bluffing behaviors: {bluffing_issues}")
-    return bluffing_issues == 0
 
 def get_valid_actions(trainer: CFRTrainer, history: list) -> list:
     """Get valid actions given game history."""
@@ -270,14 +214,10 @@ def run_optimality_tests(strategy_file: str):
     if test_nash_equilibrium_property(trainer, avg_strat):
         tests_passed += 1
     
-    # if test_symmetry_properties(trainer, avg_strat):
-    #     tests_passed += 1
     
     if test_dominated_strategies(trainer, avg_strat):
         tests_passed += 1
     
-    # if test_rational_bluffing(trainer, avg_strat):
-    #     tests_passed += 1
     
     # For convergence test, you'd need two different strategy files
     # if test_convergence_stability(trainer1, trainer2):

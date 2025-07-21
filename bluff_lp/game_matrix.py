@@ -7,6 +7,7 @@ import itertools
 from time import time
 from bluff_lp.constants import (NUM_FACES, NUM_DICES)
 from tqdm import tqdm
+
 class Buffer: 
     """
     The buffer for keeping track what index corresponds to what strategy.
