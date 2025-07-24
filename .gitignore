@@ -1,5 +1,6 @@
 # Folders
 venv/
+literature/
 
 # Files
 .env.local
@@ -7,3 +8,4 @@ venv/
 
 # File types
 *.pdf
+
