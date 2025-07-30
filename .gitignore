@@ -5,6 +5,8 @@ literature/
 # Files
 .env.local
 .env
+TODO.txt
 
 # File types
 *.pdf
+
