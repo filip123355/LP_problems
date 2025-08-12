@@ -7,6 +7,7 @@ import itertools
 from time import time
 from bluff_lp.constants import (NUM_FACES, NUM_DICES)
 from tqdm import tqdm
+from scipy.linalg import block_diag
 
 class Buffer: 
     """
@@ -41,10 +42,11 @@ class GameMatrix:
     def __init__(self, 
                 num_dices: int, 
                 num_faces: int,
-                x_roll: tuple|None=None):
+                x_roll: tuple|None=None,
+                y_roll: tuple|None=None):
         self.num_dices = num_dices
         self.num_faces = num_faces
-        self.b = num_faces * num_dices * 2 # Multiplied by two take into account two players
+        self.b = num_faces * num_dices * 2 # Multiplied by two to take into account two players
         # Initialize fresh buffers per instance
         self.x_buffer = Buffer()
         self.y_buffer = Buffer()
@@ -52,9 +54,14 @@ class GameMatrix:
             self.x_roll = tuple(np.random.randint(1, self.num_faces + 1, size=self.num_dices))
         else:
             self.x_roll = x_roll if isinstance(x_roll, (tuple, list, np.ndarray)) else (x_roll,)
-        
+        if y_roll is None:
+            self.y_roll = tuple(np.random.randint(1, self.num_faces + 1, size=self.num_dices))
+        else:
+            self.y_roll = y_roll if isinstance(y_roll, (tuple, list, np.ndarray)) else (y_roll,)
+
     def roll(self):
         self.x_roll = tuple(np.random.randint(1, self.num_faces + 1, size=self.num_dices))
+        self.y_roll = tuple(np.random.randint(1, self.num_faces + 1, size=self.num_dices))
 
     def bid_decode(self, index: int) -> tuple[int, int]:
         total_faces = self.num_faces
@@ -89,22 +96,18 @@ class GameMatrix:
                 face_call: int,
                 player: bool,
                 ) -> float:
-        g_v = 0
-        for y_roll in itertools.product(range(1, self.num_faces + 1), repeat=self.num_dices):
-            rolls = list(y_roll) + list(self.x_roll)
-            actual_count = rolls.count(face_call)
-            if actual_count >= dice_call:
-                g_v += 1
-            else:
-                g_v -= 1
-        g_v /= self.num_faces ** self.num_dices
+        rolls = list(self.y_roll) + list(self.x_roll)
+        actual_count = rolls.count(face_call)
+        if actual_count >= dice_call:
+            g_v = 1
+        else:
+            g_v = -1
         return g_v if player else -g_v
     
     def build_constraints(self, verbose: bool=False):
         
         def _build(buffer: Buffer) -> np.ndarray:
             constraints = np.zeros((2, len(buffer) + 1))
-            constraints[0, 0] = 1
             for root in buffer.data.keys():
                 list_root = list(root.zfill(self.b + 1))
                 unos_root = [i for i, x in enumerate(list_root) if x == '1']
@@ -128,8 +131,27 @@ class GameMatrix:
             return constraints
         
         start = time()     
-        self.x_constraints = _build(self.x_buffer)
-        self.y_constraints = _build(self.y_buffer)
+        x_constraints = _build(self.x_buffer)
+        y_constraints = _build(self.y_buffer)
+
+        # Patching the networkflow for many dice outcomes.
+        # The number of private outcomes per player equals (num_faces ** num_dices), not num_dices * num_faces.
+        outcome_blocks = self.num_faces ** self.num_dices
+        x_first_col_limited = x_constraints.copy()[1:, 0]
+        y_first_col_limited = y_constraints.copy()[1:, 0]
+        x_constraints_bd = x_constraints[1:, 1:]
+        y_constraints_bd = y_constraints[1:, 1:]
+        x_constraints_bd = np.kron(np.eye(outcome_blocks, dtype=int), x_constraints_bd)
+        y_constraints_bd = np.kron(np.eye(outcome_blocks, dtype=int), y_constraints_bd)
+        x_constraints_bd = np.concatenate((np.repeat(x_first_col_limited, outcome_blocks, axis=0).reshape(-1, 1), x_constraints_bd), axis=1)
+        y_constraints_bd = np.concatenate((np.repeat(y_first_col_limited, outcome_blocks, axis=0).reshape(-1, 1), y_constraints_bd), axis=1)
+        x_constraints = np.concatenate((np.zeros((1, x_constraints_bd.shape[1])), x_constraints_bd), axis=0)
+        y_constraints = np.concatenate((np.zeros((1, y_constraints_bd.shape[1])), y_constraints_bd), axis=0)
+        x_constraints[0, 0] = 1
+        y_constraints[0, 0] = 1
+
+        self.x_constraints = x_constraints
+        self.y_constraints = y_constraints
         self.x_vec = np.repeat(0, self.x_constraints.shape[0])
         self.y_vec = np.repeat(0, self.y_constraints.shape[0])
         self.x_vec[0] = 1
@@ -166,8 +188,8 @@ class GameMatrix:
             self.game_matrix[x_ind, y_ind] = g_v
         
         # Adding blank row and column for null node   
-        self.game_matrix = np.concatenate((np.repeat(0, self.game_matrix.shape[0]).reshape(-1, 1), self.game_matrix), axis=1)
-        self.game_matrix = np.concatenate((np.repeat(0, self.game_matrix.shape[1]).reshape(1, -1), self.game_matrix), axis=0)
+        # self.game_matrix = np.concatenate((np.repeat(0, self.game_matrix.shape[0]).reshape(-1, 1), self.game_matrix), axis=1)
+        # self.game_matrix = np.concatenate((np.repeat(0, self.game_matrix.shape[1]).reshape(1, -1), self.game_matrix), axis=0)
         stop_fill_game_matrix = time()
         
         if verbose:
@@ -182,7 +204,11 @@ class GameMatrix:
             name: str,
             path :str="game_matrices",
             verbose: bool=False):
-        np.save(f"{path}/{name}", self.game_matrix)
+        out_dir = f"{path}/{name}"
+        os.makedirs(out_dir, exist_ok=True)
+        np.save(f"{out_dir}/big_gm.npy", self.game_matrix)
+        # Backward-compatible name
+        np.save(f"{out_dir}/gm.npy", self.game_matrix)
         if verbose:
             print(f"\nMatrix saved under: {path}/{name}")
     
@@ -198,13 +224,32 @@ if __name__ == "__main__":
     num_faces = NUM_FACES
     num_dices = NUM_DICES
     verbose = False
+    big_gm_list = []
     for x_roll in itertools.product(range(1, num_faces + 1), repeat=num_dices):
-        gm = GameMatrix(num_dices=num_dices, num_faces=num_faces, x_roll=x_roll)
-        gm.build_buffers()
-        gm.build(verbose=verbose)
-        os.makedirs(f"bluff_lp/game_matrices/{num_dices}_{num_faces}f", exist_ok=True)
-        gm.save(name=f"{x_roll}_{num_faces}.npy",
-                path=f"bluff_lp/game_matrices/{num_dices}_{num_faces}f", verbose=verbose)
+        medium_gm_list = []
+        for y_roll in itertools.product(range(1, num_faces + 1), repeat=num_dices):
+            gm = GameMatrix(num_dices=num_dices, num_faces=num_faces, x_roll=x_roll, y_roll=y_roll)
+            gm.build_buffers()
+            gm.build(verbose=verbose)
+            medium_gm_list.append(gm.game_matrix)
+        big_gm_list.append(medium_gm_list)
+    for i, medium_gm in enumerate(big_gm_list):
+        big_gm_list[i] = np.concatenate(tuple(medium_gm), axis=1)
+    big_gm = np.concatenate(tuple(big_gm_list), axis=0)
+
+    # Blank row
+    big_gm = np.concatenate((np.zeros((1, big_gm.shape[1])), big_gm), axis=0)
+    vec = np.zeros((big_gm.shape[0], 1))
+    vec[0, 0] = 1
+    big_gm = np.concatenate((vec, big_gm), axis=1)
+
+    out_dir = f"bluff_lp/game_matrices/{num_dices}_{num_faces}f"
+    os.makedirs(out_dir, exist_ok=True)
+    np.save(f"{out_dir}/big_gm.npy", big_gm)
+    np.save(f"{out_dir}/gm.npy", big_gm)
+
+    # In solve, matrices have to be stacked together, the null row/column has to be added, and 
+    # the entire matrix has to be properly scaled.
         
     gm.build_constraints()
     os.makedirs(f"bluff_lp/game_constraints/{num_dices}_{num_faces}f", exist_ok=True)

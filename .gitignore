@@ -1,6 +1,7 @@
 # Folders
 venv/
 literature/
+kuhn_go/
 
 # Files
 .env.local

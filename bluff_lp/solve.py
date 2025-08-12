@@ -5,12 +5,16 @@ import itertools
 
 from bluff_lp.constants import (NUM_FACES, NUM_DICES)
 
-def solve_game_matrix_for_roll(roll, save=True, verbose=False):
+def solve_game_matrix(save=True, verbose=False):
     # Primary
-    A = 1 / (NUM_DICES * NUM_FACES) * np.load(f"bluff_lp/game_matrices/{NUM_DICES}_{NUM_FACES}f/{roll}_{NUM_FACES}.npy")
+    # Load the full big matrix with null row/column and apply proper chance averaging.
+    A_raw = np.load(f"bluff_lp/game_matrices/{NUM_DICES}_{NUM_FACES}f/big_gm.npy")
+    # Each player has NUM_FACES**NUM_DICES possible private outcomes, so pairs are squared.
+    chance_scale = (NUM_FACES ** (2 * NUM_DICES))
+    A = (1.0 / chance_scale) * A_raw
     E = np.load(f"bluff_lp/game_constraints/{NUM_DICES}_{NUM_FACES}f/x.npy")
     F = np.load(f"bluff_lp/game_constraints/{NUM_DICES}_{NUM_FACES}f/y.npy")
-    
+
     k, m = E.shape
     l, n = F.shape
     e = np.zeros((k, 1), dtype=np.float32)
@@ -35,7 +39,7 @@ def solve_game_matrix_for_roll(roll, save=True, verbose=False):
     lp.optimize()
     
     if verbose:
-        print(f"\nPrimary strategy for roll {roll}:")
+        print(f"\nPrimary strategy for the game matrix:")
         for i in range(m):
             print(f"{i}: {lp.getVal(x[i])}")
         
@@ -43,7 +47,7 @@ def solve_game_matrix_for_roll(roll, save=True, verbose=False):
         
     if save:
         os.makedirs(f"bluff_lp/solutions/{NUM_DICES}_{NUM_FACES}", exist_ok=True)
-        np.save(f"bluff_lp/solutions/{NUM_DICES}_{NUM_FACES}/strategy_{roll}_{NUM_FACES}.npy", strategy)
+        np.save(f"bluff_lp/solutions/{NUM_DICES}_{NUM_FACES}/strategy.npy", strategy)
         
     # Dual
     lp = pyscipopt.Model()
@@ -63,20 +67,14 @@ def solve_game_matrix_for_roll(roll, save=True, verbose=False):
     lp.optimize()
     
     if verbose:
-        print(f"\nDual strategy for roll {roll}:")
+        print(f"\nDual strategy for the game matrix:")
         for i in range(n):
             print(f"{i}: {lp.getVal(y[i])}")
             
     dual_strategy = np.array([lp.getVal(y[i]) for i in range(n)])
         
     if save:
-        np.save(f"bluff_lp/solutions/{NUM_DICES}_{NUM_FACES}/strategy_{roll}_{NUM_FACES}_dual.npy", dual_strategy)
-        
-def solve_player():
-    faces = range(1, NUM_FACES + 1)
-    for roll in itertools.product(faces, repeat=NUM_DICES):
-        print(f"\nSolving game matrix for roll {roll}...")
-        solve_game_matrix_for_roll(roll, save=True)
+        np.save(f"bluff_lp/solutions/{NUM_DICES}_{NUM_FACES}/strategy_dual.npy", dual_strategy)
 
 if __name__ == "__main__":
-    solve_player()
+    solve_game_matrix(save=True, verbose=False)

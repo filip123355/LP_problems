@@ -121,5 +121,3 @@ if __name__ == "__main__":
         print(f"Theoretical game value: {theoretical_value:.6f}")
         print(f"Computed game value: {computed_value:.6f}")
         print(f"Difference: {abs(theoretical_value - computed_value):.8f}")
-
-
